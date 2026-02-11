@@ -1,0 +1,20 @@
+[project]
+name = "sliding-game"
+version = "0.1.0"
+description = "Sliding puzzle game — Python implementation"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pygame>=2.6.1",
+    "pyqt6>=6.10.2",
+    "rich>=14.3.2",
+    "typer>=0.21.1",
+]
+
+[project.scripts]
+sliding-game = "main:app"
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.15.0",
+]
