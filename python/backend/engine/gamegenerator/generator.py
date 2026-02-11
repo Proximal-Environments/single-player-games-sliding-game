@@ -11,13 +11,8 @@ class GameGenerator:
     """Creates solvable puzzles by shuffling from the solved state."""
 
     @staticmethod
-    def generate(size: int) -> Board:
-        """Return a random *solvable* board of the given size.
-
-        The algorithm starts from the goal state and applies a large number
-        of random valid moves, guaranteeing the result is always solvable.
-        """
-        # Build solved board
+    def solved(size: int) -> Board:
+        """Return the goal-state board (all tiles in order, blank bottom-right)."""
         tiles: list[list[int]] = []
         num = 1
         for r in range(size):
@@ -29,21 +24,27 @@ class GameGenerator:
                     row.append(num)
                     num += 1
             tiles.append(row)
+        return Board(size=size, tiles=tiles, blank_pos=(size - 1, size - 1))
 
-        board = Board(size=size, tiles=tiles, blank_pos=(size - 1, size - 1))
-
-        # Shuffle by making random valid moves
-        num_shuffles = size * size * 100
+    @staticmethod
+    def scramble(board: Board) -> None:
+        """Scramble *board* in-place using random valid moves."""
+        num_shuffles = board.size * board.size * 100
         prev_pos: tuple[int, int] | None = None
 
         for _ in range(num_shuffles):
             neighbors = GameGenerator._get_neighbors(board)
-            # Avoid immediately undoing the previous move
             if prev_pos in neighbors and len(neighbors) > 1:
                 neighbors.remove(prev_pos)
             target = random.choice(neighbors)
             prev_pos = board.blank_pos
             GameGenerator._swap(board, target)
+
+    @staticmethod
+    def generate(size: int) -> Board:
+        """Return a random *solvable* board of the given size."""
+        board = GameGenerator.solved(size)
+        GameGenerator.scramble(board)
 
         # Ensure the board is not already solved
         if board.is_solved():

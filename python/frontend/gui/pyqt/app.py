@@ -7,6 +7,7 @@ and high-score display.  No terminal interaction required.
 from __future__ import annotations
 
 import sys
+import time as _time
 from datetime import datetime
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from PyQt6.QtWidgets import (
 )
 
 from backend.engine.gameplay import GamePlay
+from backend.engine.gamesolver import Solver
 from backend.models.board import Direction
 from backend.models.highscore import HighScoreEntry, HighScoreManager
 
@@ -141,7 +143,15 @@ class _MenuPage(QWidget):
         )
         root.addWidget(self.play_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        root.addSpacerItem(QSpacerItem(0, 6))
+        root.addSpacerItem(QSpacerItem(0, 4))
+
+        self.load_btn = _styled_btn(
+            "S T U D Y", bg=_YELLOW, hover="#fcecc4", fg=_BASE,
+            min_w=240, font_size=13,
+        )
+        root.addWidget(self.load_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        root.addSpacerItem(QSpacerItem(0, 4))
 
         self.scores_btn = _styled_btn("HIGH SCORES", min_w=240, font_size=13)
         root.addWidget(self.scores_btn, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -178,13 +188,21 @@ class _MenuPage(QWidget):
 class _GamePage(QWidget):
     """The puzzle board with tile buttons and live stats."""
 
-    def __init__(self, size: int, hs: HighScoreManager) -> None:
+    def __init__(self, size: int, hs: HighScoreManager, *, study_mode: bool = False) -> None:
         super().__init__()
         self.setObjectName("page")
         self._size = size
         self._hs = hs
-        self.game = GamePlay(size)
+        self.study_mode = study_mode
         self.won = False
+
+        # Study mode starts from solved board; game mode starts scrambled
+        if study_mode:
+            from backend.engine.gamegenerator import GameGenerator as GG
+            board = GG.solved(size)
+            self.game = GamePlay.from_board(board)
+        else:
+            self.game = GamePlay(size)
 
         tile_px = max(40, min(84, 400 // size))
         f_sz = max(12, tile_px // 4)
@@ -194,17 +212,21 @@ class _GamePage(QWidget):
         root.setContentsMargins(16, 10, 16, 10)
 
         # title
-        t = QLabel(f"Sliding Puzzle  {size}\u00d7{size}")
+        title_text = f"Study  {size}\u00d7{size}" if study_mode else f"Sliding Puzzle  {size}\u00d7{size}"
+        t = QLabel(title_text)
         t.setFont(QFont("Helvetica", 17, QFont.Weight.Bold))
+        t.setStyleSheet(f"color:{_YELLOW};" if study_mode else f"color:{_TEXT};")
         t.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(t)
 
-        # stats
-        self._stats = QLabel()
-        self._stats.setFont(QFont("Helvetica", 13))
-        self._stats.setStyleSheet(f"color:{_PINK};")
-        self._stats.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        root.addWidget(self._stats)
+        # stats — only in game mode
+        self._stats: QLabel | None = None
+        if not study_mode:
+            self._stats = QLabel()
+            self._stats.setFont(QFont("Helvetica", 13))
+            self._stats.setStyleSheet(f"color:{_PINK};")
+            self._stats.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            root.addWidget(self._stats)
 
         # board
         frame = QFrame()
@@ -227,19 +249,70 @@ class _GamePage(QWidget):
                 row.append(b)
             self._btns.append(row)
 
-        # hint
-        self._hint = QLabel(
-            "Arrows / WASD  move     R  restart     M  menu     Esc  quit"
-        )
-        self._hint.setFont(QFont("Helvetica", 11))
-        self._hint.setStyleSheet(f"color:{_OVERLAY0};")
-        self._hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        root.addWidget(self._hint)
+        # action buttons row
+        btn_row = QHBoxLayout()
+        btn_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        btn_row.setSpacing(8)
 
-        # timer
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._tick)
-        self._timer.start(200)
+        if study_mode:
+            self.scramble_btn = _styled_btn(
+                "Scramble (R)", bg=_PINK, hover="#f5d0e3", fg=_BASE,
+                font_size=12, min_w=100, min_h=34,
+            )
+            btn_row.addWidget(self.scramble_btn)
+            self.scramble_btn.clicked.connect(self._do_scramble)
+
+        self.hint_btn = _styled_btn(
+            "Hint (N)", bg=_YELLOW, hover="#fcecc4", fg=_BASE,
+            font_size=12, min_w=90, min_h=34,
+        )
+        btn_row.addWidget(self.hint_btn)
+
+        self.solve_btn: QPushButton | None = None
+        if study_mode:
+            self.solve_btn = _styled_btn(
+                "Solve (V)", bg=_GREEN, hover=_GREEN_H, fg=_BASE,
+                font_size=12, min_w=90, min_h=34,
+            )
+            btn_row.addWidget(self.solve_btn)
+
+        root.addLayout(btn_row)
+
+        # status
+        self._status = QLabel("")
+        self._status.setFont(QFont("Helvetica", 11))
+        self._status.setStyleSheet(f"color:{_YELLOW};")
+        self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(self._status)
+
+        # controls hint
+        if study_mode:
+            controls_text = (
+                "Arrows / WASD  move     R  scramble     N  hint"
+                "     V  solve     M  menu"
+            )
+        else:
+            controls_text = (
+                "Arrows / WASD  move     N  hint"
+                "     R  restart     M  menu"
+            )
+        self._controls = QLabel(controls_text)
+        self._controls.setFont(QFont("Helvetica", 10))
+        self._controls.setStyleSheet(f"color:{_OVERLAY0};")
+        self._controls.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(self._controls)
+
+        # wire buttons
+        self.hint_btn.clicked.connect(self._do_hint)
+        if self.solve_btn is not None:
+            self.solve_btn.clicked.connect(self._do_solve)
+
+        # timer — only in game mode
+        self._timer: QTimer | None = None
+        if not study_mode:
+            self._timer = QTimer(self)
+            self._timer.timeout.connect(self._tick)
+            self._timer.start(200)
 
         self._sync()
 
@@ -265,9 +338,12 @@ class _GamePage(QWidget):
                         f"border:none;border-radius:8px;font-weight:bold;}}"
                         f"QPushButton:hover{{background:{hv};}}"
                     )
-        self._tick()
+        if self._stats is not None:
+            self._tick()
 
     def _tick(self) -> None:
+        if self._stats is None:
+            return
         m, s = divmod(int(self.game.state.elapsed_time), 60)
         self._stats.setText(
             f"Moves: {self.game.state.moves}    Time: {m:02d}:{s:02d}"
@@ -277,32 +353,91 @@ class _GamePage(QWidget):
         if self.won or self.game.state.board.tiles[r][c] == 0:
             return
         self.game.move_tile(r, c)
+        self._status.setText("")
         self._sync()
-        self._check_win()
+        if not self.study_mode:
+            self._check_win()
 
     def move(self, d: Direction) -> None:
         if self.won:
             return
         self.game.move(d)
+        self._status.setText("")
         self._sync()
-        self._check_win()
+        if not self.study_mode:
+            self._check_win()
 
     def restart(self) -> None:
-        self.game = GamePlay(self._size)
+        """Restart — scramble in study, new game in play."""
+        if self.study_mode:
+            self._do_scramble()
+        else:
+            self.game = GamePlay(self._size)
+            self.won = False
+            if self._timer is not None:
+                self._timer.start(200)
+            self._status.setText("")
+            self._controls.setStyleSheet(f"color:{_OVERLAY0};")
+            self._sync()
+
+    # -- solver actions --
+
+    def _do_scramble(self) -> None:
+        from backend.engine.gamegenerator import GameGenerator as GG
+        board = GG.generate(self._size)
+        self.game = GamePlay.from_board(board)
         self.won = False
-        self._timer.start(200)
-        self._hint.setText(
-            "Arrows / WASD  move     R  restart     M  menu     Esc  quit"
-        )
-        self._hint.setStyleSheet(f"color:{_OVERLAY0};")
+        self._status.setText("Scrambled!")
         self._sync()
+
+    def _do_hint(self) -> None:
+        if self.won:
+            return
+        hint = Solver.hint(self.game.state.board)
+        if hint is None:
+            self._status.setText(
+                "Already solved!" if self.game.state.board.is_solved()
+                else "No hint (unsolvable or solver not implemented)"
+            )
+        else:
+            self.game.move(hint)
+            self._status.setText(f"Hint: {hint.value}")
+            self._sync()
+            if not self.study_mode:
+                self._check_win()
+
+    def _do_solve(self) -> None:
+        if self.won:
+            return
+        try:
+            moves = Solver.solve(self.game.state.board)
+        except NotImplementedError:
+            self._status.setText("Solver not yet implemented")
+            return
+
+        if not moves:
+            self._status.setText(
+                "Already solved!" if self.game.state.board.is_solved()
+                else "Board is unsolvable"
+            )
+            return
+
+        for i, direction in enumerate(moves):
+            self.game.move(direction)
+            self._status.setText(f"Solving… {i + 1}/{len(moves)}")
+            self._sync()
+            QApplication.processEvents()
+            _time.sleep(0.05)
+
+        self._status.setText(f"Solved in {len(moves)} moves!")
 
     def _check_win(self) -> None:
         if self.won or not self.game.is_won:
             return
         self.won = True
         self.game.state.pause()
-        self._timer.stop()
+        if self._timer is not None:
+            self._timer.stop()
         self._hs.add_score(
             self._size,
             HighScoreEntry(
@@ -311,8 +446,8 @@ class _GamePage(QWidget):
                 date=datetime.now().strftime("%Y-%m-%d %H:%M"),
             ),
         )
-        self._hint.setText("Solved!   R  play again     M  menu")
-        self._hint.setStyleSheet(f"color:{_GREEN};font-weight:bold;")
+        self._controls.setText("Solved!   R  play again     M  menu")
+        self._controls.setStyleSheet(f"color:{_GREEN};font-weight:bold;")
         # parent window listens via self.won flag
 
 
@@ -450,6 +585,7 @@ class _MainWindow(QMainWindow):
         # menu
         self._menu = _MenuPage(default_size)
         self._menu.play_btn.clicked.connect(self._on_play)
+        self._menu.load_btn.clicked.connect(self._on_study)
         self._menu.scores_btn.clicked.connect(self._show_scores)
         self._menu.quit_btn.clicked.connect(self.close)
         self._stack.addWidget(self._menu)  # 0
@@ -471,9 +607,17 @@ class _MainWindow(QMainWindow):
     def _show_menu(self) -> None:
         self._stack.setCurrentIndex(_IDX_MENU)
 
-    def _on_play(self) -> None:
+    def _on_play(self, _checked: bool = False) -> None:
+        """Start a normal game (hint only, scored)."""
+        self._start_game_page(study_mode=False)
+
+    def _on_study(self, _checked: bool = False) -> None:
+        """Open study mode — starts from solved board with scramble button."""
+        self._start_game_page(study_mode=True)
+
+    def _start_game_page(self, *, study_mode: bool = False) -> None:
         size = self._menu.selected_size
-        page = _GamePage(size, self._hs)
+        page = _GamePage(size, self._hs, study_mode=study_mode)
         self._game_page = page
 
         old = self._stack.widget(_IDX_GAME)
@@ -535,10 +679,16 @@ class _MainWindow(QMainWindow):
             }
             if key in _dirs:
                 gp.move(_dirs[key])
-                if gp.won:
+                if gp.won and not gp.study_mode:
                     self._show_win()
+            elif key == Qt.Key.Key_N:
+                gp._do_hint()
+                if gp.won and not gp.study_mode:
+                    self._show_win()
+            elif key == Qt.Key.Key_V and gp.study_mode:
+                gp._do_solve()
             elif key == Qt.Key.Key_R:
-                if gp.won:
+                if gp.won and not gp.study_mode:
                     self._on_play()
                 else:
                     gp.restart()
@@ -569,6 +719,7 @@ class _MainWindow(QMainWindow):
         if (
             gp is not None
             and gp.won
+            and not gp.study_mode
             and self._stack.currentIndex() == _IDX_GAME
         ):
             self._show_win()

@@ -15,6 +15,14 @@ class GamePlay:
         board = GameGenerator.generate(size)
         self.state = GameState(board)
 
+    @classmethod
+    def from_board(cls, board: Board) -> "GamePlay":
+        """Create a game session from an existing board (e.g. loaded from file)."""
+        obj = object.__new__(cls)
+        obj.size = board.size
+        obj.state = GameState(board)
+        return obj
+
     # -- movement (direction = where the *tile* moves) ------------------------
 
     def move(self, direction: Direction) -> bool:

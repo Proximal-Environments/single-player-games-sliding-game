@@ -7,12 +7,14 @@ and high-score display.  No terminal interaction required.
 from __future__ import annotations
 
 import enum
+import time
 from datetime import datetime
 from pathlib import Path
 
 import pygame
 
 from backend.engine.gameplay import GamePlay
+from backend.engine.gamesolver import Solver
 from backend.models.board import Direction
 from backend.models.highscore import HighScoreEntry, HighScoreManager
 
@@ -134,10 +136,13 @@ class PygameApp:
         self._screen = _Screen.MENU
         self._game: GamePlay | None = None
         self._won = False
+        self._study_mode = False
+        self._status_msg: str = ""
 
         # Pre-build buttons that don't move
         self._build_menu_btns()
         self._build_score_btns()
+        self._build_game_btns()
 
     # ── menu buttons ────────────────────────────────────────────────────────
 
@@ -153,7 +158,7 @@ class PygameApp:
         for idx, s in enumerate(sizes):
             r, c = divmod(idx, cols)
             x = sx + c * (bw + gap)
-            y = 270 + r * (bh + gap)
+            y = 250 + r * (bh + gap)
             self._size_btns[s] = _Btn(
                 (x, y, bw, bh),
                 f"{s}\u00d7{s}",
@@ -162,20 +167,28 @@ class PygameApp:
 
         bw_lg = 220
         self._play_btn = _Btn(
-            (_cx(bw_lg), 410, bw_lg, 52),
+            (_cx(bw_lg), 390, bw_lg, 50),
             "P L A Y",
             self._f_btn,
             bg=COL_BLUE,
             hover=COL_LAVENDER,
             fg=COL_BASE,
         )
+        self._load_btn = _Btn(
+            (_cx(bw_lg), 454, bw_lg, 42),
+            "S T U D Y",
+            self._f_btn_sm,
+            bg=COL_YELLOW,
+            hover=(255, 240, 200),
+            fg=COL_BASE,
+        )
         self._hs_btn = _Btn(
-            (_cx(bw_lg), 480, bw_lg, 46),
+            (_cx(bw_lg), 510, bw_lg, 42),
             "HIGH SCORES",
             self._f_btn_sm,
         )
         self._quit_btn = _Btn(
-            (_cx(bw_lg), 542, bw_lg, 46),
+            (_cx(bw_lg), 566, bw_lg, 42),
             "Q U I T",
             self._f_btn_sm,
             bg=COL_RED,
@@ -186,6 +199,7 @@ class PygameApp:
         self._menu_all: list[_Btn] = [
             *self._size_btns.values(),
             self._play_btn,
+            self._load_btn,
             self._hs_btn,
             self._quit_btn,
         ]
@@ -208,6 +222,36 @@ class PygameApp:
         self._win_menu = _Btn(
             (_cx(bw), 488, bw, 46), "M E N U", self._f_btn_sm
         )
+
+    def _build_game_btns(self) -> None:
+        """Build in-game action buttons (placed below the board)."""
+        bw, gap = 110, 10
+
+        if self._study_mode:
+            total = 3 * bw + 2 * gap
+            sx = _cx(total)
+            self._scramble_btn = _Btn(
+                (sx, 0, bw, 36), "SCRAMBLE (R)", self._f_btn_sm,
+                bg=COL_PINK, hover=(245, 210, 227), fg=COL_BASE,
+            )
+            self._hint_btn = _Btn(
+                (sx + bw + gap, 0, bw, 36), "HINT (N)", self._f_btn_sm,
+                bg=COL_YELLOW, hover=(255, 240, 200), fg=COL_BASE,
+            )
+            self._solve_btn = _Btn(
+                (sx + 2 * (bw + gap), 0, bw, 36), "SOLVE (V)", self._f_btn_sm,
+                bg=COL_GREEN, hover=(190, 240, 190), fg=COL_BASE,
+            )
+            self._game_action_btns = [self._scramble_btn, self._hint_btn, self._solve_btn]
+        else:
+            sx = _cx(bw)
+            self._hint_btn = _Btn(
+                (sx, 0, bw, 36), "HINT (N)", self._f_btn_sm,
+                bg=COL_YELLOW, hover=(255, 240, 200), fg=COL_BASE,
+            )
+            self._scramble_btn = None
+            self._solve_btn = None
+            self._game_action_btns = [self._hint_btn]
 
     # ── helpers ─────────────────────────────────────────────────────────────
 
@@ -248,7 +292,7 @@ class PygameApp:
         _blit_center(
             self._surf,
             self._f_body.render("Select grid size", True, COL_SUBTEXT),
-            228,
+            210,
         )
 
         for s, btn in self._size_btns.items():
@@ -257,6 +301,7 @@ class PygameApp:
             btn.draw(self._surf)
 
         self._play_btn.draw(self._surf)
+        self._load_btn.draw(self._surf)
         self._hs_btn.draw(self._surf)
         self._quit_btn.draw(self._surf)
 
@@ -272,23 +317,32 @@ class PygameApp:
         )
 
         # header
-        _blit_center(
-            self._surf,
-            self._f_title.render(
-                f"Sliding Puzzle  {sz}\u00d7{sz}", True, COL_TEXT
-            ),
-            14,
-        )
-        _blit_center(
-            self._surf,
-            self._f_body.render(
-                f"Moves: {game.state.moves}    "
-                f"Time: {self._fmt(game.state.elapsed_time)}",
-                True,
-                COL_PINK,
-            ),
-            44,
-        )
+        if self._study_mode:
+            _blit_center(
+                self._surf,
+                self._f_title.render(
+                    f"Study  {sz}\u00d7{sz}", True, COL_YELLOW
+                ),
+                14,
+            )
+        else:
+            _blit_center(
+                self._surf,
+                self._f_title.render(
+                    f"Sliding Puzzle  {sz}\u00d7{sz}", True, COL_TEXT
+                ),
+                14,
+            )
+            _blit_center(
+                self._surf,
+                self._f_body.render(
+                    f"Moves: {game.state.moves}    "
+                    f"Time: {self._fmt(game.state.elapsed_time)}",
+                    True,
+                    COL_PINK,
+                ),
+                44,
+            )
 
         # board bg
         pygame.draw.rect(
@@ -316,16 +370,38 @@ class PygameApp:
                     ),
                 )
 
+        # action buttons row
+        btn_y = 76 + total + 10
+        for btn in self._game_action_btns:
+            btn.rect.y = btn_y
+            btn.draw(self._surf)
+
+        # status message
+        if self._status_msg:
+            _blit_center(
+                self._surf,
+                self._f_small.render(self._status_msg, True, COL_YELLOW),
+                btn_y + 44,
+            )
+            footer_y = btn_y + 64
+        else:
+            footer_y = btn_y + 44
+
         # footer hints
+        if self._study_mode:
+            hint_text = (
+                "Arrows / WASD  move     R  scramble"
+                "     M  menu     Esc  quit"
+            )
+        else:
+            hint_text = (
+                "Arrows / WASD  move     R  restart"
+                "     M  menu     Esc  quit"
+            )
         _blit_center(
             self._surf,
-            self._f_small.render(
-                "Arrows / WASD  move     R  restart"
-                "     M  menu     Esc  quit",
-                True,
-                COL_OVERLAY0,
-            ),
-            76 + total + 14,
+            self._f_small.render(hint_text, True, COL_OVERLAY0),
+            footer_y,
         )
 
     def _draw_win(self) -> None:
@@ -405,6 +481,8 @@ class PygameApp:
                     return True
             if self._play_btn.hit(ev.pos):
                 self._start_game()
+            elif self._load_btn.hit(ev.pos):
+                self._open_study()
             elif self._hs_btn.hit(ev.pos):
                 self._screen = _Screen.SCORES
             elif self._quit_btn.hit(ev.pos):
@@ -412,6 +490,8 @@ class PygameApp:
         elif ev.type == pygame.KEYDOWN:
             if ev.key == pygame.K_RETURN:
                 self._start_game()
+            elif ev.key == pygame.K_l:
+                self._open_study()
             elif ev.key in (pygame.K_q, pygame.K_ESCAPE):
                 return False
         return True
@@ -419,13 +499,28 @@ class PygameApp:
     def _ev_game(self, ev: pygame.event.Event) -> bool:
         game = self._game
         assert game is not None
-        if ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+        if ev.type == pygame.MOUSEMOTION:
+            for btn in self._game_action_btns:
+                btn.motion(ev.pos)
+        elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+            # Check action buttons first
+            if self._study_mode and self._scramble_btn and self._scramble_btn.hit(ev.pos):
+                self._do_scramble()
+                return True
+            if self._hint_btn.hit(ev.pos):
+                self._do_hint()
+                return True
+            if self._study_mode and self._solve_btn and self._solve_btn.hit(ev.pos):
+                self._do_solve()
+                return True
+            # Then check tiles
             tpx, ox, oy, _ = self._tile_layout()
             for r in range(game.size):
                 for c in range(game.size):
                     if self._tile_rect(r, c, tpx, ox, oy).collidepoint(ev.pos):
                         if game.state.board.tiles[r][c] != 0:
                             game.move_tile(r, c)
+                            self._status_msg = ""
                         return True
         elif ev.type == pygame.KEYDOWN:
             _dirs = {
@@ -440,8 +535,16 @@ class PygameApp:
             }
             if ev.key in _dirs:
                 game.move(_dirs[ev.key])
+                self._status_msg = ""
+            elif ev.key == pygame.K_n:
+                self._do_hint()
+            elif ev.key == pygame.K_v and self._study_mode:
+                self._do_solve()
             elif ev.key == pygame.K_r:
-                self._start_game()
+                if self._study_mode:
+                    self._do_scramble()
+                else:
+                    self._start_game()
             elif ev.key == pygame.K_m:
                 self._screen = _Screen.MENU
             elif ev.key == pygame.K_ESCAPE:
@@ -479,11 +582,74 @@ class PygameApp:
                 self._screen = _Screen.MENU
         return True
 
+    # ── solver actions ──────────────────────────────────────────────────────
+
+    def _do_hint(self) -> None:
+        game = self._game
+        assert game is not None
+        hint = Solver.hint(game.state.board)
+        if hint is None:
+            self._status_msg = (
+                "Already solved!" if game.state.board.is_solved()
+                else "No hint (unsolvable or solver not implemented)"
+            )
+        else:
+            game.move(hint)
+            self._status_msg = f"Hint: {hint.value}"
+
+    def _do_solve(self) -> None:
+        game = self._game
+        assert game is not None
+        try:
+            moves = Solver.solve(game.state.board)
+        except NotImplementedError:
+            self._status_msg = "Solver not yet implemented"
+            return
+
+        if not moves:
+            self._status_msg = (
+                "Already solved!" if game.state.board.is_solved()
+                else "Board is unsolvable"
+            )
+            return
+
+        # Animate moves
+        for i, direction in enumerate(moves):
+            game.move(direction)
+            self._status_msg = f"Solving… {i + 1}/{len(moves)}"
+            self._draw_game()
+            pygame.display.flip()
+            pygame.event.pump()  # keep OS happy
+            time.sleep(0.05)
+
+        self._status_msg = f"Solved in {len(moves)} moves!"
+
+    def _do_scramble(self) -> None:
+        from backend.engine.gamegenerator import GameGenerator as GG
+        board = GG.generate(self._sel_size)
+        self._game = GamePlay.from_board(board)
+        self._won = False
+        self._status_msg = "Scrambled!"
+
+    def _open_study(self) -> None:
+        """Enter study mode — starts from solved board."""
+        from backend.engine.gamegenerator import GameGenerator as GG
+        self._study_mode = True
+        board = GG.solved(self._sel_size)
+        self._game = GamePlay.from_board(board)
+        self._won = False
+        self._status_msg = ""
+        self._build_game_btns()
+        self._screen = _Screen.PLAYING
+
     # ── game state ──────────────────────────────────────────────────────────
 
     def _start_game(self) -> None:
         self._game = GamePlay(self._sel_size)
         self._won = False
+        self._study_mode = False
+        self._status_msg = ""
+        self._build_game_btns()
         self._screen = _Screen.PLAYING
 
     def _check_win(self) -> None:
@@ -530,7 +696,7 @@ class PygameApp:
                     running = False
                     break
 
-            if self._screen == _Screen.PLAYING:
+            if self._screen == _Screen.PLAYING and not self._study_mode:
                 self._check_win()
 
             drawer = _draw.get(self._screen)

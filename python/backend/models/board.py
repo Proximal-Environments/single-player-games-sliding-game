@@ -24,6 +24,33 @@ class Board:
     tiles: list[list[int]]
     blank_pos: tuple[int, int]
 
+    # -- construction helpers -------------------------------------------------
+
+    @classmethod
+    def from_flat(cls, size: int, flat: list[int]) -> Board:
+        """Create a board from a flat row-major tile list.
+
+        Example::
+
+            Board.from_flat(3, [1, 2, 3, 4, 5, 6, 7, 0, 8])
+        """
+        if len(flat) != size * size:
+            raise ValueError(
+                f"Expected {size * size} tiles for a {size}×{size} board, "
+                f"got {len(flat)}."
+            )
+        tiles: list[list[int]] = []
+        blank_pos: tuple[int, int] = (0, 0)
+        for r in range(size):
+            row = flat[r * size : (r + 1) * size]
+            for c, v in enumerate(row):
+                if v == 0:
+                    blank_pos = (r, c)
+            tiles.append(row)
+        return cls(size=size, tiles=tiles, blank_pos=blank_pos)
+
+    # -- queries --------------------------------------------------------------
+
     def get_tile(self, row: int, col: int) -> int:
         return self.tiles[row][col]
 
