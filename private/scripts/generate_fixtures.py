@@ -36,7 +36,7 @@ from backend.models.board import Board  # noqa: E402
 
 FIXTURES_DIR = PROJECT_ROOT / "fixtures"
 SEED = 42
-RANDOM_BOARDS_PER_LEVEL = 1000
+RANDOM_BOARDS_PER_LEVEL = 250
 DIFFICULTIES: dict[str, int] = {
     "3x3": 3,
     "7x7": 7,
