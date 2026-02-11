@@ -118,7 +118,15 @@ def _auto_solve(game: GamePlay) -> str:
 # -- menu screen --------------------------------------------------------------
 
 
-def _show_menu(sel_size: int) -> None:
+_DIFFICULTIES: list[tuple[str, int]] = [
+    ("Easy", 3),
+    ("Medium", 7),
+    ("Hard", 10),
+    ("Very Hard", 12),
+]
+
+
+def _show_menu(sel_idx: int) -> None:
     _clear()
     print()
     print(f"  {_BOLD}======================================{_R}")
@@ -126,14 +134,15 @@ def _show_menu(sel_size: int) -> None:
     print(f"  {_BOLD}======================================{_R}")
     print()
 
-    # Size selector
-    sizes_str = ""
-    for s in range(3, 9):
-        if s == sel_size:
-            sizes_str += f"  {_BG_SEL} {s}\u00d7{s} {_R}"
+    # Difficulty selector
+    diff_str = ""
+    for i, (label, size) in enumerate(_DIFFICULTIES):
+        tag = f"{label} {size}\u00d7{size}"
+        if i == sel_idx:
+            diff_str += f"  {_BG_SEL} {tag} {_R}"
         else:
-            sizes_str += f"  {_DIM}{s}\u00d7{s}{_R}"
-    print(f"    Size:{sizes_str}")
+            diff_str += f"  {_DIM}{tag}{_R}"
+    print(f"   {diff_str}")
     print(f"    {_DIM}\u2190 \u2192 to change{_R}")
     print()
 
@@ -329,10 +338,10 @@ def _study_game(size: int) -> None:
 def _menu_loop(data_dir: Path) -> None:
     hs_path = data_dir / "highscores.json"
     manager = HighScoreManager(hs_path)
-    sel_size = 4
+    sel_idx = 0  # default: Easy 3×3
 
     while True:
-        _show_menu(sel_size)
+        _show_menu(sel_idx)
         key = get_key()
 
         if key == "quit":
@@ -340,13 +349,13 @@ def _menu_loop(data_dir: Path) -> None:
             print("  Goodbye!\n")
             return
         elif key == "left":
-            sel_size = max(3, sel_size - 1)
+            sel_idx = max(0, sel_idx - 1)
         elif key == "right":
-            sel_size = min(8, sel_size + 1)
+            sel_idx = min(len(_DIFFICULTIES) - 1, sel_idx + 1)
         elif key in ("1", "enter"):
-            _play_game(sel_size, manager)
+            _play_game(_DIFFICULTIES[sel_idx][1], manager)
         elif key == "2":
-            _study_game(sel_size)
+            _study_game(_DIFFICULTIES[sel_idx][1])
         elif key in ("3", "help"):
             # 'h' maps to "help", '3' is raw char
             _show_highscores(manager)

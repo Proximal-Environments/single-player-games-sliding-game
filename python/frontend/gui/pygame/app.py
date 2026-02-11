@@ -117,7 +117,7 @@ class PygameApp:
     def __init__(self, default_size: int, data_dir: Path) -> None:
         self._data_dir = data_dir
         self._hs = HighScoreManager(data_dir / "highscores.json")
-        self._sel_size = max(3, min(8, default_size))
+        self._sel_size = default_size if default_size in (3, 7, 10, 12) else 3
 
         pygame.init()
         self._surf = pygame.display.set_mode((WIN_W, WIN_H))
@@ -146,28 +146,32 @@ class PygameApp:
 
     # ── menu buttons ────────────────────────────────────────────────────────
 
+    _DIFFICULTIES: list[tuple[str, int]] = [
+        ("Easy 3\u00d73", 3),
+        ("Medium 7\u00d77", 7),
+        ("Hard 10\u00d710", 10),
+        ("V.Hard 12\u00d712", 12),
+    ]
+
     def _build_menu_btns(self) -> None:
-        bw, bh = 72, 46
-        sizes = [3, 4, 5, 6, 7, 8]
-        cols = 4
-        gap = 12
-        row_w = cols * bw + (cols - 1) * gap
-        sx = _cx(row_w)
+        bw, bh = 112, 46
+        diffs = self._DIFFICULTIES
+        gap = 8
+        total_w = len(diffs) * bw + (len(diffs) - 1) * gap
+        sx = _cx(total_w)
 
         self._size_btns: dict[int, _Btn] = {}
-        for idx, s in enumerate(sizes):
-            r, c = divmod(idx, cols)
-            x = sx + c * (bw + gap)
-            y = 250 + r * (bh + gap)
+        for i, (label, s) in enumerate(diffs):
+            x = sx + i * (bw + gap)
             self._size_btns[s] = _Btn(
-                (x, y, bw, bh),
-                f"{s}\u00d7{s}",
+                (x, 250, bw, bh),
+                label,
                 self._f_btn_sm,
             )
 
         bw_lg = 220
         self._play_btn = _Btn(
-            (_cx(bw_lg), 390, bw_lg, 50),
+            (_cx(bw_lg), 330, bw_lg, 50),
             "P L A Y",
             self._f_btn,
             bg=COL_BLUE,
@@ -175,7 +179,7 @@ class PygameApp:
             fg=COL_BASE,
         )
         self._load_btn = _Btn(
-            (_cx(bw_lg), 454, bw_lg, 42),
+            (_cx(bw_lg), 394, bw_lg, 42),
             "S T U D Y",
             self._f_btn_sm,
             bg=COL_YELLOW,
@@ -183,12 +187,12 @@ class PygameApp:
             fg=COL_BASE,
         )
         self._hs_btn = _Btn(
-            (_cx(bw_lg), 510, bw_lg, 42),
+            (_cx(bw_lg), 450, bw_lg, 42),
             "HIGH SCORES",
             self._f_btn_sm,
         )
         self._quit_btn = _Btn(
-            (_cx(bw_lg), 566, bw_lg, 42),
+            (_cx(bw_lg), 506, bw_lg, 42),
             "Q U I T",
             self._f_btn_sm,
             bg=COL_RED,
@@ -291,7 +295,7 @@ class PygameApp:
         )
         _blit_center(
             self._surf,
-            self._f_body.render("Select grid size", True, COL_SUBTEXT),
+            self._f_body.render("Select difficulty", True, COL_SUBTEXT),
             210,
         )
 
@@ -711,7 +715,7 @@ class PygameApp:
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
-def run(size: int = 4, data_dir: Path = Path("data")) -> None:
+def run(size: int = 3, data_dir: Path = Path("data")) -> None:
     """Launch the Pygame GUI (opens directly to the menu)."""
     app = PygameApp(size, data_dir)
     app.run_loop()

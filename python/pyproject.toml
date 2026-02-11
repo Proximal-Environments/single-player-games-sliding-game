@@ -7,14 +7,18 @@ requires-python = ">=3.13"
 dependencies = [
     "pygame>=2.6.1",
     "pyqt6>=6.10.2",
-    "rich>=14.3.2",
-    "typer>=0.21.1",
 ]
-
-[project.scripts]
-sliding-game = "main:app"
 
 [project.optional-dependencies]
 dev = [
+    "pytest>=8.0",
+    "pytest-timeout>=2.3",
+    "pytest-xdist>=3.5",
     "ruff>=0.15.0",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-n auto"
+timeout = 1

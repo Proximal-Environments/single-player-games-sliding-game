@@ -94,7 +94,14 @@ def _styled_btn(
 class _MenuPage(QWidget):
     """Main menu with size selection, play, scores, quit."""
 
-    def __init__(self, default_size: int = 4) -> None:
+    _DIFFICULTIES: list[tuple[str, int]] = [
+        ("Easy 3\u00d73", 3),
+        ("Medium 7\u00d77", 7),
+        ("Hard 10\u00d710", 10),
+        ("V.Hard 12\u00d712", 12),
+    ]
+
+    def __init__(self, default_size: int = 3) -> None:
         super().__init__()
         self.setObjectName("page")
         self.selected_size = default_size
@@ -113,7 +120,7 @@ class _MenuPage(QWidget):
         root.addSpacerItem(QSpacerItem(0, 24))
 
         # subtitle
-        sub = QLabel("Select grid size")
+        sub = QLabel("Select difficulty")
         sub.setFont(QFont("Helvetica", 15))
         sub.setStyleSheet(f"color:{_SUBTEXT};")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -121,18 +128,17 @@ class _MenuPage(QWidget):
 
         root.addSpacerItem(QSpacerItem(0, 8))
 
-        # size buttons — two rows
+        # difficulty buttons — single row
         self._size_btns: dict[int, QPushButton] = {}
-        for row_sizes in ([3, 4, 5, 6], [7, 8]):
-            hbox = QHBoxLayout()
-            hbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            hbox.setSpacing(10)
-            for s in row_sizes:
-                btn = _styled_btn(f"{s}\u00d7{s}", min_w=72, min_h=46, font_size=13)
-                btn.clicked.connect(lambda _, sz=s: self._pick_size(sz))
-                hbox.addWidget(btn)
-                self._size_btns[s] = btn
-            root.addLayout(hbox)
+        hbox = QHBoxLayout()
+        hbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hbox.setSpacing(10)
+        for label, s in self._DIFFICULTIES:
+            btn = _styled_btn(label, min_w=100, min_h=46, font_size=12)
+            btn.clicked.connect(lambda _, sz=s: self._pick_size(sz))
+            hbox.addWidget(btn)
+            self._size_btns[s] = btn
+        root.addLayout(hbox)
 
         root.addSpacerItem(QSpacerItem(0, 18))
 
@@ -735,7 +741,7 @@ class _MainWindow(QMainWindow):
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
-def run(size: int = 4, data_dir: Path = Path("data")) -> None:
+def run(size: int = 3, data_dir: Path = Path("data")) -> None:
     """Launch the PyQt6 GUI (opens directly to the menu)."""
     qapp = QApplication.instance() or QApplication(sys.argv)
     window = _MainWindow(size, data_dir)

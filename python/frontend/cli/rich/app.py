@@ -464,7 +464,7 @@ def _study_game(size: int) -> None:
 def _menu_loop(data_dir: Path) -> None:
     hs_path = data_dir / "highscores.json"
     manager = HighScoreManager(hs_path)
-    sel_size = 4
+    sel_size = 3
 
     while True:
         _draw_menu(sel_size)
