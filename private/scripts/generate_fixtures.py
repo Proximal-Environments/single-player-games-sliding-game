@@ -36,7 +36,15 @@ from backend.models.board import Board  # noqa: E402
 
 FIXTURES_DIR = PROJECT_ROOT / "fixtures"
 SEED = 42
-RANDOM_BOARDS_PER_LEVEL = 250
+
+# Per-size board counts: ~3.5K 3×3 for exhaustive correctness,
+# 500 each for larger sizes (random sampling is sufficient there).
+BOARD_COUNTS: dict[str, int] = {
+    "3x3": 3500,
+    "7x7": 500,
+    "10x10": 500,
+    "12x12": 500,
+}
 DIFFICULTIES: dict[str, int] = {
     "3x3": 3,
     "7x7": 7,
@@ -183,10 +191,11 @@ def main() -> None:
 
     for label, size in DIFFICULTIES.items():
         seen: set[str] = set()
+        count = BOARD_COUNTS[label]
 
         # 1. Random boards
-        print(f"Generating {RANDOM_BOARDS_PER_LEVEL} random {label} boards …")
-        random_boards = _generate_random_boards(size, RANDOM_BOARDS_PER_LEVEL, seen)
+        print(f"Generating {count} random {label} boards …")
+        random_boards = _generate_random_boards(size, count, seen)
 
         # 2. Edge-case boards (corner swaps)
         edge_boards = _generate_edge_cases_for_size(size, seen)

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class Direction(Enum):
+class Direction(StrEnum):
     UP = "up"
     DOWN = "down"
     LEFT = "left"
