@@ -7,6 +7,7 @@ and high-score display.  No terminal interaction required.
 from __future__ import annotations
 
 import enum
+import random
 import time
 from datetime import datetime
 from pathlib import Path
@@ -118,6 +119,9 @@ class PygameApp:
         self._data_dir = data_dir
         self._hs = HighScoreManager(data_dir / "highscores.json")
         self._sel_size = default_size if default_size in (3, 7, 10, 12) else 3
+        self._images_dir = data_dir.parent / "assets" / "images"
+        self._tile_images: dict[int, pygame.Surface] = {}
+        self._ref_image: pygame.Surface | None = None
 
         pygame.init()
         self._surf = pygame.display.set_mode((WIN_W, WIN_H))
@@ -283,6 +287,50 @@ class PygameApp:
             tpx,
         )
 
+    # ── image tile preparation ───────────────────────────────────────────────
+
+    _REF_SIZE = 64  # reference thumbnail side length in px
+
+    def _prepare_tile_images(self) -> None:
+        """Pick a random puzzle image and slice it into per-tile surfaces."""
+        self._tile_images = {}
+        self._ref_image = None
+        if not self._images_dir.is_dir():
+            return
+        images = list(self._images_dir.glob("*.png"))
+        if not images:
+            return
+
+        img_path = random.choice(images)
+        full_img = pygame.image.load(str(img_path)).convert()
+
+        # Reference thumbnail (from original high-res image)
+        self._ref_image = pygame.transform.smoothscale(
+            full_img, (self._REF_SIZE, self._REF_SIZE)
+        )
+
+        sz = self._game.size  # type: ignore[union-attr]
+        tpx = (BOARD_MAX - (sz + 1) * TILE_GAP) // sz
+        total_px = sz * tpx
+
+        # Badge font for number overlays
+        self._f_badge = pygame.font.SysFont(
+            "Helvetica", max(10, tpx // 5), bold=True
+        )
+
+        # Scale image to fit the board area
+        full_img = pygame.transform.smoothscale(full_img, (total_px, total_px))
+
+        for val in range(1, sz * sz):
+            # Tile value v maps to grid position ((v-1)//sz, (v-1)%sz) in the
+            # solved state — crop the corresponding piece from the image.
+            tr = (val - 1) // sz
+            tc = (val - 1) % sz
+            tile_surf = full_img.subsurface(
+                pygame.Rect(tc * tpx, tr * tpx, tpx, tpx)
+            ).copy()
+            self._tile_images[val] = tile_surf
+
     # ── drawing ─────────────────────────────────────────────────────────────
 
     def _draw_menu(self) -> None:
@@ -363,16 +411,48 @@ class PygameApp:
                 if val == 0:
                     continue
                 rect = self._tile_rect(r, c, tpx, ox, oy)
-                col = COL_GREEN if board.is_tile_correct(r, c) else COL_BLUE
-                pygame.draw.rect(self._surf, col, rect, border_radius=6)
-                lbl = f_tile.render(str(val), True, COL_BASE)
-                self._surf.blit(
-                    lbl,
-                    (
-                        rect.centerx - lbl.get_width() // 2,
-                        rect.centery - lbl.get_height() // 2,
-                    ),
-                )
+                if val in self._tile_images:
+                    self._surf.blit(self._tile_images[val], rect.topleft)
+                    # number badge overlay
+                    num_lbl = self._f_badge.render(str(val), True, (255, 255, 255))
+                    bw = num_lbl.get_width() + 8
+                    bh = num_lbl.get_height() + 4
+                    badge = pygame.Surface((bw, bh), pygame.SRCALPHA)
+                    badge.fill((0, 0, 0, 150))
+                    badge.blit(num_lbl, (4, 2))
+                    self._surf.blit(badge, (rect.x + 2, rect.y + 2))
+                    # green border for correct tiles
+                    if board.is_tile_correct(r, c):
+                        pygame.draw.rect(
+                            self._surf, COL_GREEN, rect, width=3, border_radius=4
+                        )
+                else:
+                    col = COL_GREEN if board.is_tile_correct(r, c) else COL_BLUE
+                    pygame.draw.rect(self._surf, col, rect, border_radius=6)
+                    lbl = f_tile.render(str(val), True, COL_BASE)
+                    self._surf.blit(
+                        lbl,
+                        (
+                            rect.centerx - lbl.get_width() // 2,
+                            rect.centery - lbl.get_height() // 2,
+                        ),
+                    )
+
+        # reference image thumbnail (top-right)
+        if self._ref_image is not None:
+            rs = self._REF_SIZE
+            rx = WIN_W - rs - MARGIN
+            ry = 8
+            pygame.draw.rect(
+                self._surf, COL_SURFACE1,
+                pygame.Rect(rx - 2, ry - 2, rs + 4, rs + 4),
+                border_radius=6,
+            )
+            self._surf.blit(self._ref_image, (rx, ry))
+            ref_lbl = self._f_small.render("Ref", True, COL_SUBTEXT)
+            self._surf.blit(
+                ref_lbl, (rx + (rs - ref_lbl.get_width()) // 2, ry + rs + 4)
+            )
 
         # action buttons row
         btn_y = 76 + total + 10
@@ -644,6 +724,7 @@ class PygameApp:
         self._won = False
         self._status_msg = ""
         self._build_game_btns()
+        self._prepare_tile_images()
         self._screen = _Screen.PLAYING
 
     # ── game state ──────────────────────────────────────────────────────────
@@ -654,6 +735,7 @@ class PygameApp:
         self._study_mode = False
         self._status_msg = ""
         self._build_game_btns()
+        self._prepare_tile_images()
         self._screen = _Screen.PLAYING
 
     def _check_win(self) -> None:

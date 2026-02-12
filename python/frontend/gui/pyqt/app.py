@@ -6,13 +6,14 @@ and high-score display.  No terminal interaction required.
 
 from __future__ import annotations
 
+import random
 import sys
 import time as _time
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont, QKeyEvent
+from PyQt6.QtCore import QSize, Qt, QTimer
+from PyQt6.QtGui import QColor, QFont, QIcon, QKeyEvent, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -194,11 +195,14 @@ class _MenuPage(QWidget):
 class _GamePage(QWidget):
     """The puzzle board with tile buttons and live stats."""
 
-    def __init__(self, size: int, hs: HighScoreManager, *, study_mode: bool = False) -> None:
+    def __init__(
+        self, size: int, hs: HighScoreManager, images_dir: Path, *, study_mode: bool = False
+    ) -> None:
         super().__init__()
         self.setObjectName("page")
         self._size = size
         self._hs = hs
+        self._images_dir = images_dir
         self.study_mode = study_mode
         self.won = False
 
@@ -211,19 +215,46 @@ class _GamePage(QWidget):
             self.game = GamePlay(size)
 
         tile_px = max(40, min(84, 400 // size))
+        self._tile_px = tile_px
         f_sz = max(12, tile_px // 4)
+        self._tile_pixmaps: dict[int, QPixmap] = {}
+        self._ref_pixmap: QPixmap | None = None
+        self._prepare_tile_images()
 
         root = QVBoxLayout(self)
         root.setSpacing(6)
         root.setContentsMargins(16, 10, 16, 10)
 
-        # title
+        # title row with reference image
+        title_row = QHBoxLayout()
+        title_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_row.setSpacing(12)
+
         title_text = f"Study  {size}\u00d7{size}" if study_mode else f"Sliding Puzzle  {size}\u00d7{size}"
         t = QLabel(title_text)
         t.setFont(QFont("Helvetica", 17, QFont.Weight.Bold))
         t.setStyleSheet(f"color:{_YELLOW};" if study_mode else f"color:{_TEXT};")
         t.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        root.addWidget(t)
+        title_row.addWidget(t)
+
+        # reference thumbnail
+        ref_side = min(48, tile_px)
+        self._ref_label = QLabel()
+        self._ref_label.setFixedSize(ref_side, ref_side)
+        self._ref_label.setStyleSheet(
+            f"border:2px solid {_SURFACE1}; border-radius:4px; background:{_MANTLE};"
+        )
+        if self._ref_pixmap is not None:
+            self._ref_label.setPixmap(
+                self._ref_pixmap.scaled(
+                    ref_side, ref_side,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+        title_row.addWidget(self._ref_label)
+
+        root.addLayout(title_row)
 
         # stats — only in game mode
         self._stats: QLabel | None = None
@@ -324,6 +355,64 @@ class _GamePage(QWidget):
 
     # -- helpers --
 
+    def _prepare_tile_images(self) -> None:
+        """Pick a random puzzle image and slice it into per-tile pixmaps."""
+        self._tile_pixmaps = {}
+        self._ref_pixmap = None
+        if not self._images_dir.is_dir():
+            return
+        images = list(self._images_dir.glob("*.png"))
+        if not images:
+            return
+
+        img_path = random.choice(images)
+        full_pm = QPixmap(str(img_path))
+        if full_pm.isNull():
+            return
+
+        # Reference thumbnail (from original high-res pixmap)
+        self._ref_pixmap = full_pm.scaled(
+            64, 64,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+
+        total_px = self._size * self._tile_px
+        full_pm = full_pm.scaled(
+            total_px, total_px,
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+
+        badge_font = QFont("Helvetica", max(8, self._tile_px // 6), QFont.Weight.Bold)
+
+        for val in range(1, self._size * self._size):
+            tr = (val - 1) // self._size
+            tc = (val - 1) % self._size
+            tile_pm = full_pm.copy(
+                tc * self._tile_px, tr * self._tile_px,
+                self._tile_px, self._tile_px,
+            )
+
+            # Paint number badge overlay onto each tile
+            painter = QPainter(tile_pm)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setFont(badge_font)
+            fm = painter.fontMetrics()
+            text = str(val)
+            tw = fm.horizontalAdvance(text)
+            th = fm.height()
+            # semi-transparent dark badge background
+            painter.setBrush(QColor(0, 0, 0, 150))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(2, 2, tw + 8, th + 4, 3.0, 3.0)
+            # white number text
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(6, 2 + fm.ascent() + 2, text)
+            painter.end()
+
+            self._tile_pixmaps[val] = tile_pm
+
     def _sync(self) -> None:
         board = self.game.state.board
         for r in range(self._size):
@@ -332,10 +421,26 @@ class _GamePage(QWidget):
                 b = self._btns[r][c]
                 if v == 0:
                     b.setText("")
+                    b.setIcon(QIcon())
                     b.setStyleSheet(
                         f"QPushButton{{background:{_MANTLE};border:none;border-radius:8px;}}"
                     )
+                elif v in self._tile_pixmaps:
+                    b.setText("")
+                    b.setIcon(QIcon(self._tile_pixmaps[v]))
+                    b.setIconSize(QSize(self._tile_px, self._tile_px))
+                    border = (
+                        f"border:3px solid {_GREEN};"
+                        if board.is_tile_correct(r, c)
+                        else "border:1px solid #2a2a3e;"
+                    )
+                    b.setStyleSheet(
+                        f"QPushButton{{background:transparent;{border}"
+                        f"border-radius:8px;padding:0px;}}"
+                        f"QPushButton:hover{{opacity:0.9;}}"
+                    )
                 else:
+                    b.setIcon(QIcon())
                     b.setText(str(v))
                     bg = _GREEN if board.is_tile_correct(r, c) else _BLUE
                     hv = _GREEN_H if board.is_tile_correct(r, c) else _BLUE_H
@@ -579,6 +684,7 @@ class _MainWindow(QMainWindow):
     def __init__(self, default_size: int, data_dir: Path) -> None:
         super().__init__()
         self._data_dir = data_dir
+        self._images_dir = data_dir.parent / "assets" / "images"
         self._hs = HighScoreManager(data_dir / "highscores.json")
 
         self.setWindowTitle("Sliding Puzzle")
@@ -623,7 +729,7 @@ class _MainWindow(QMainWindow):
 
     def _start_game_page(self, *, study_mode: bool = False) -> None:
         size = self._menu.selected_size
-        page = _GamePage(size, self._hs, study_mode=study_mode)
+        page = _GamePage(size, self._hs, self._images_dir, study_mode=study_mode)
         self._game_page = page
 
         old = self._stack.widget(_IDX_GAME)
